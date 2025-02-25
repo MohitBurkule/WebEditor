@@ -2,21 +2,19 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Monaco Editor + transformers.js + GitHub Sync</title>
-
+  <title>Advanced Monaco Editor + transformers.js + GitHub + Cookie Manager</title>
+  
   <!-- Monaco Editor CSS -->
-  <link
-    rel="stylesheet"
-    href="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/editor/editor.main.min.css"
-  />
-
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/editor/editor.main.min.css" />
   <!-- Iconify for icons -->
   <script src="https://code.iconify.design/2/2.2.1/iconify.min.js"></script>
-
+  
   <style>
     html, body {
-      margin: 0; padding: 0;
-      width: 100%; height: 100%;
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
       font-family: sans-serif;
       background: #f3f3f3;
       transition: background 0.3s, color 0.3s;
@@ -25,24 +23,23 @@
       background: #1e1e1e;
       color: #ccc;
     }
-
     /* Toolbar */
     #toolbar {
-      display: flex; 
-      align-items: center; 
-      padding: 8px; 
-      background: #007acc; 
+      display: flex;
+      align-items: center;
+      padding: 8px;
+      background: #007acc;
       color: white;
+      flex-wrap: wrap;
     }
-    #toolbar button {
-      background: transparent; 
-      border: none; 
-      color: inherit; 
-      font-size: 18px; 
-      margin-right: 10px; 
+    #toolbar button, #toolbar label, #toolbar select {
+      background: transparent;
+      border: none;
+      color: inherit;
+      font-size: 16px;
+      margin: 4px;
       cursor: pointer;
     }
-
     /* Tabs */
     #tabs {
       display: flex;
@@ -50,130 +47,172 @@
       border-bottom: 1px solid #ccc;
     }
     #tabs button {
-      flex: 1; 
-      padding: 10px; 
-      border: none; 
-      background: none; 
-      cursor: pointer; 
+      flex: 1;
+      padding: 10px;
+      border: none;
+      background: none;
+      cursor: pointer;
       font-size: 16px;
-      display: flex; 
-      align-items: center; 
+      display: flex;
+      align-items: center;
       justify-content: center;
     }
     #tabs button.active {
-      background: #ddd; 
+      background: #ddd;
       font-weight: bold;
     }
-
-    /* Main container with vertical split */
+    /* Main container (Editor + Preview) */
     #mainContainer {
       display: flex;
       width: 100%;
-      height: calc(100% - 88px); /* 40px toolbar + 48px tabs */
+      height: calc(100% - 140px); /* toolbar + tabs height */
     }
-
-    /* Editor container on the left */
+    /* Editor container */
     #editorContainer {
       width: 50%;
       min-width: 200px;
       height: 100%;
       position: relative;
     }
-
-    /* The resizer between editor & preview */
+    /* Resizer for editor/preview */
     #resizer {
-      width: 5px; 
-      background: #ccc; 
+      width: 5px;
+      background: #ccc;
       cursor: col-resize;
+      z-index: 2;
     }
-
-    /* Preview container on the right */
+    /* Preview container */
     #previewContainer {
-      flex: 1; 
-      background: #fff; 
-      position: relative; 
+      flex: 1;
+      background: #fff;
+      position: relative;
       overflow: hidden;
+      transition: width 0.3s;
+    }
+    /* Mobile view styles */
+    #previewContainer.mobile-view {
+      width: auto;
+      max-width: 100%;
+      margin: 0 auto;
+      border: 1px solid #aaa;
+      box-shadow: 0 0 10px rgba(0,0,0,0.3);
     }
     #livePreview {
-      width: 100%; 
-      height: 100%; 
+      width: 100%;
+      height: 100%;
       border: none;
     }
-
-    /* Console panel hidden by default */
+    /* Console Panel */
     #consolePanel {
       background: #333;
       color: #fff;
       padding: 10px;
       font-family: monospace;
-      display: none; /* toggled by button */
-      max-height: 200px;
+      height: 200px;
       overflow-y: auto;
+      display: none;
+      resize: vertical;
+    }
+    /* Console resizer */
+    #consoleResizer {
+      height: 5px;
+      background: #555;
+      cursor: ns-resize;
+    }
+    /* Cookie Modal */
+    #cookieModal {
+      display: none;
+      position: fixed;
+      z-index: 1000;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0,0,0,0.5);
+    }
+    #cookieModal .modal-content {
+      background: #fff;
+      margin: 10% auto;
+      padding: 20px;
+      width: 80%;
+      max-width: 600px;
+      border-radius: 4px;
+    }
+    #cookieModal textarea {
+      width: 100%;
+      height: 200px;
+    }
+    #cookieModal button {
+      margin-top: 10px;
     }
   </style>
 </head>
 <body>
   <!-- Toolbar -->
   <div id="toolbar">
-    <!-- AI Buttons -->
-    <button id="aiAssist" title="AI Assist">
-      <span class="iconify" data-icon="mdi:lightbulb-on-outline"></span>
+    <button id="aiAssist" title="AI Assist" disabled>
+      <span class="iconify" data-icon="mdi:lightbulb-on-outline"></span> AI Assist
     </button>
-    <button id="aiDebug" title="AI Debugger">
-      <span class="iconify" data-icon="mdi:bug"></span>
+    <button id="aiDebug" title="AI Debug" disabled>
+      <span class="iconify" data-icon="mdi:bug"></span> AI Debug
     </button>
-
-    <!-- Theme, Run, Auto-run -->
     <button id="toggleTheme" title="Toggle Dark/Light Mode">
-      <span class="iconify" data-icon="mdi:theme-light-dark"></span>
+      <span class="iconify" data-icon="mdi:theme-light-dark"></span> Toggle Theme
     </button>
     <button id="runCode" title="Run Code">
-      <span class="iconify" data-icon="mdi:play"></span>
+      <span class="iconify" data-icon="mdi:play"></span> Run Code
     </button>
-    <label style="margin-right: 10px;">
-      <input type="checkbox" id="autoRunCheckbox" checked />
-      Auto-run?
+    <label>
+      <input type="checkbox" id="autoRunCheckbox" checked /> Auto-run?
     </label>
-
-    <!-- Undo/Redo -->
     <button id="undo" title="Undo">
-      <span class="iconify" data-icon="mdi:undo"></span>
+      <span class="iconify" data-icon="mdi:undo"></span> Undo
     </button>
     <button id="redo" title="Redo">
-      <span class="iconify" data-icon="mdi:redo"></span>
+      <span class="iconify" data-icon="mdi:redo"></span> Redo
     </button>
-
-    <!-- GitHub Sync -->
     <button id="githubSync" title="GitHub Sync">
-      <span class="iconify" data-icon="mdi:github"></span>
+      <span class="iconify" data-icon="mdi:github"></span> GitHub Sync
     </button>
-
-    <!-- Export, Clear Cookies, Toggle Console -->
     <button id="exportProject" title="Export Project">
-      <span class="iconify" data-icon="mdi:download"></span>
+      <span class="iconify" data-icon="mdi:download"></span> Export
     </button>
-    <button id="clearCookies" title="Clear Cookies">
-      <span class="iconify" data-icon="mdi:cookie-remove"></span>
+    <button id="manageCookies" title="Manage Cookies">
+      <span class="iconify" data-icon="mdi:cookie"></span> Cookies
     </button>
     <button id="toggleConsole" title="Toggle Console">
-      <span class="iconify" data-icon="mdi:console-line"></span>
+      <span class="iconify" data-icon="mdi:console-line"></span> Console
     </button>
+    <button id="toggleMobile" title="Toggle Mobile View">
+      <span class="iconify" data-icon="mdi:cellphone"></span> Mobile Preview
+    </button>
+    <!-- Device Size Selector (for mobile preview) -->
+    <label>
+      Screen Size:
+      <select id="deviceSize">
+        <option value="320">320px</option>
+        <option value="375" selected>375px</option>
+        <option value="414">414px</option>
+        <option value="768">768px</option>
+        <option value="1024">1024px</option>
+      </select>
+    </label>
   </div>
 
-  <!-- Tabs (HTML, CSS, JS) -->
+  <!-- Tabs -->
   <div id="tabs">
     <button class="tab active" data-lang="html">
-      <span class="iconify" data-icon="mdi:file-code"></span>&nbsp;HTML
+      <span class="iconify" data-icon="mdi:file-code"></span> HTML
     </button>
     <button class="tab" data-lang="css">
-      <span class="iconify" data-icon="mdi:file-code"></span>&nbsp;CSS
+      <span class="iconify" data-icon="mdi:file-code"></span> CSS
     </button>
     <button class="tab" data-lang="js">
-      <span class="iconify" data-icon="mdi:file-code"></span>&nbsp;JavaScript
+      <span class="iconify" data-icon="mdi:file-code"></span> JavaScript
     </button>
   </div>
 
-  <!-- Main container with Editor, Resizer, and Preview -->
+  <!-- Main container: Editor + Resizer + Preview -->
   <div id="mainContainer">
     <div id="editorContainer"></div>
     <div id="resizer"></div>
@@ -182,25 +221,48 @@
     </div>
   </div>
 
-  <!-- Console Panel for logs -->
+  <!-- Console Panel with Resizer -->
+  <div id="consoleResizer"></div>
   <div id="consolePanel">
     <strong>Console Output:</strong>
     <div id="consoleOutput"></div>
   </div>
 
-  <!-- 1) Load transformers.js from Hugging Face (CDN: unpkg) -->
-  <!-- For up-to-date version, see https://github.com/xenova/transformers.js -->
-  <script src="https://unpkg.com/@xenova/transformers/dist/transformers.js"></script>
+  <!-- Cookie Modal -->
+  <div id="cookieModal">
+    <div class="modal-content">
+      <h3>Manage Cookies</h3>
+      <textarea id="cookieText"></textarea>
+      <br />
+      <button id="saveCookies">Save Changes</button>
+      <button id="clearAllCookies">Clear All Cookies</button>
+      <button id="closeCookieModal">Close</button>
+    </div>
+  </div>
 
-  <!-- 2) Temporarily disable AMD for HTMLHint to avoid conflicts -->
+  <!-- Load transformers.js via dynamic import in our main code -->
+  <script>
+    // Dynamically import transformers.js and assign it to window.transformers.
+    async function loadTransformersModule() {
+      try {
+        const transformers = await import('https://unpkg.com/@xenova/transformers/dist/transformers.js');
+        window.transformers = transformers;
+        console.log("Transformers module loaded.");
+      } catch (e) {
+        console.error("Error importing transformers.js:", e);
+      }
+    }
+    loadTransformersModule();
+  </script>
+
+  <!-- Temporarily disable AMD for HTMLHint -->
   <script>
     var backupDefine = window.define;
     var backupRequire = window.require;
     window.define = undefined;
     window.require = undefined;
   </script>
-
-  <!-- 3) Minimal HTMLHint load -->
+  <!-- Load HTMLHint -->
   <script src="https://cdn.jsdelivr.net/npm/htmlhint@1.1.4/dist/htmlhint.min.js"></script>
   <script>
     if (typeof HTMLHint === "undefined") window.HTMLHint = {};
@@ -211,35 +273,42 @@
     window.require = backupRequire;
   </script>
 
-  <!-- 4) Monaco AMD Loader -->
+  <!-- Monaco AMD Loader (only once) -->
   <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js"></script>
-
-  <!-- 5) JSZip for exporting code as ZIP -->
+  <!-- JSZip for exporting project -->
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 
   <script>
     /************************************************************
-     * Main code starts below:
-     *  - Monaco Editor Setup
-     *  - Hugging Face transformers.js pipeline
-     *  - GitHub placeholders
-     *  - Editor logic (tabs, run code, console, etc.)
+     * Main Code:
+     *  - Setup Monaco Editor with persistent models.
+     *  - Dynamically load transformers.js and then load the model.
+     *  - Setup AI Assist/Debug, GitHub sync, run/auto-run, theme toggle,
+     *    cookie modal, console panel (with resizer), and mobile preview (with device sizes).
      ************************************************************/
-
-    // Using the transformers.js library to load a text-generation pipeline.
-    // For real code completions, try a smaller code-specific model (like codegen) if available.
+    
     let textGenPipeline = null;
-
-    // Start loading the pipeline ASAP
-    (async function loadModel() {
-      console.log("Loading huggingface/transformers model (gpt2) ...");
-      // For more model options, see: https://github.com/xenova/transformers.js/tree/main/docs
-      textGenPipeline = await window.transformers.pipeline(
-        "text-generation",
-        "Xenova/gpt2"  // Or "Xenova/codegen-350M-mono" for code
-      );
-      console.log("Model loaded!");
-    })();
+    let modelLoaded = false;
+    
+    // Load the model asynchronously once transformers.js is available.
+    async function loadModel() {
+      // Wait until window.transformers is defined
+      while (!window.transformers) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      console.log("Loading transformers.js model...");
+      try {
+        // You can change the model name if you want a code-specific one.
+        textGenPipeline = await window.transformers.pipeline("text-generation", "Xenova/gpt2");
+        modelLoaded = true;
+        console.log("Model loaded successfully.");
+        document.getElementById("aiAssist").disabled = false;
+        document.getElementById("aiDebug").disabled = false;
+      } catch (err) {
+        console.error("Error loading model:", err);
+      }
+    }
+    loadModel();
 
     require.config({
       paths: { vs: "https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs" }
@@ -253,7 +322,7 @@
         js:   "console.log('Hello, JavaScript!');"
       };
 
-      /********** CREATE MONACO MODELS **********/
+      /********** CREATE MONACO MODELS (Persistent) **********/
       const models = {
         html: monaco.editor.createModel(defaultContent.html, "html"),
         css:  monaco.editor.createModel(defaultContent.css,  "css"),
@@ -271,7 +340,7 @@
           automaticLayout: true
         });
         editor.onDidChangeModelContent(() => {
-          if (autoRunCheckbox.checked) {
+          if (document.getElementById("autoRunCheckbox").checked) {
             clearTimeout(previewTimeout);
             previewTimeout = setTimeout(updatePreview, 500);
           }
@@ -280,7 +349,7 @@
         });
       }
 
-      // Start with HTML
+      // Initialize editor with HTML
       createEditorForLang(currentLang);
 
       /********** TAB SWITCHING **********/
@@ -337,48 +406,48 @@
 
       /********** AI ASSIST & DEBUG **********/
       document.getElementById("aiAssist").addEventListener("click", async () => {
-        if (!editor || !textGenPipeline) {
+        if (!editor || !modelLoaded) {
           alert("Model not loaded yet. Please wait...");
           return;
         }
         const userCode = editor.getValue();
-        console.log("Requesting AI assist from GPT-2 (transformers.js)...");
+        console.log("Requesting AI assist from transformers.js...");
         try {
-          // For better code suggestions, consider a code-specific model, or refine your prompt
           const prompt = "Improve this code snippet:\n\n" + userCode + "\n\nImproved version:\n";
           const result = await textGenPipeline(prompt, { max_new_tokens: 60 });
           const suggestion = result[0]?.generated_text?.replace(prompt, "") || "";
-          // Insert the suggestion at the current cursor
-          editor.executeEdits(null, [
-            { range: editor.getSelection(), text: "\n/* AI Assist */\n" + suggestion }
-          ]);
+          editor.executeEdits(null, [{
+            range: editor.getSelection(),
+            text: "\n/* AI Assist Suggestion */\n" + suggestion,
+            forceMoveMarkers: true
+          }]);
+          console.log("AI assist inserted.");
         } catch (err) {
           console.error("AI assist error:", err);
-          alert("AI Assist error. Check console.");
+          alert("Error in AI Assist. Check console for details.");
         }
       });
 
       document.getElementById("aiDebug").addEventListener("click", async () => {
-        if (!editor || !textGenPipeline) {
+        if (!editor || !modelLoaded) {
           alert("Model not loaded yet. Please wait...");
           return;
         }
         const code = editor.getValue();
-        console.log("Requesting AI debug from GPT-2 (transformers.js)...");
+        console.log("Requesting AI debug from transformers.js...");
         try {
-          const prompt = "Analyze bugs in this code snippet:\n\n" + code + "\n\nAnalysis:\n";
+          const prompt = "Analyze the following code for potential bugs and improvements:\n\n" + code + "\n\nAnalysis:\n";
           const result = await textGenPipeline(prompt, { max_new_tokens: 60 });
           const analysis = result[0]?.generated_text?.replace(prompt, "") || "";
           alert("AI Debug Analysis:\n" + analysis);
         } catch (err) {
           console.error("AI debug error:", err);
-          alert("AI Debug error. Check console.");
+          alert("Error in AI Debug. Check console for details.");
         }
       });
 
       /********** GITHUB SYNC (PLACEHOLDER) **********/
       document.getElementById("githubSync").addEventListener("click", async () => {
-        // Simple prompt to either load or save
         const choice = prompt("Type 'load' to fetch from GitHub, 'save' to push to GitHub:");
         if (!choice) return;
         const token = prompt("Enter your GitHub Personal Access Token:");
@@ -387,13 +456,10 @@
           return;
         }
         const repo = prompt("Enter 'owner/repo' to sync with (e.g. 'username/test-repo'):");
-
         if (choice.toLowerCase() === "load") {
-          // Example: reading a file from GitHub
           const path = prompt("Enter the file path in the repo (e.g. 'index.html'):");
           await loadFromGitHub(token, repo, path);
         } else if (choice.toLowerCase() === "save") {
-          // Example: writing the current HTML file to GitHub
           const path = prompt("Enter the file path in the repo to save to (e.g. 'index.html'):");
           await saveToGitHub(token, repo, path, models.html.getValue());
         } else {
@@ -411,9 +477,7 @@
             throw new Error(`GitHub fetch error: ${resp.status} ${resp.statusText}`);
           }
           const data = await resp.json();
-          // decode base64
           const content = atob(data.content);
-          // For example, store it in the HTML model
           models.html.setValue(content);
           alert(`Loaded file from GitHub: ${repo}/${path}`);
         } catch (err) {
@@ -425,7 +489,6 @@
       async function saveToGitHub(token, repo, path, fileContent) {
         try {
           const apiUrl = `https://api.github.com/repos/${repo}/contents/${path}`;
-          // We must get the current SHA first (if file exists)
           let sha = null;
           const checkResp = await fetch(apiUrl, {
             headers: { Authorization: `Bearer ${token}` }
@@ -434,7 +497,6 @@
             const checkData = await checkResp.json();
             sha = checkData.sha || null;
           }
-          // Then commit the new content
           const newResp = await fetch(apiUrl, {
             method: "PUT",
             headers: {
@@ -457,12 +519,33 @@
         }
       }
 
+      /********** MOBILE VIEW TOGGLE & DEVICE SIZE **********/
+      const toggleMobileBtn = document.getElementById("toggleMobile");
+      const deviceSizeSelect = document.getElementById("deviceSize");
+      toggleMobileBtn.addEventListener("click", () => {
+        const previewContainer = document.getElementById("previewContainer");
+        previewContainer.classList.toggle("mobile-view");
+        if (previewContainer.classList.contains("mobile-view")) {
+          const selectedWidth = deviceSizeSelect.value;
+          previewContainer.style.width = selectedWidth + "px";
+        } else {
+          previewContainer.style.width = "";
+        }
+      });
+      // Also update width when device size selection changes (if in mobile view)
+      deviceSizeSelect.addEventListener("change", () => {
+        const previewContainer = document.getElementById("previewContainer");
+        if (previewContainer.classList.contains("mobile-view")) {
+          previewContainer.style.width = deviceSizeSelect.value + "px";
+        }
+      });
+
       /********** EXPORT PROJECT (ZIP) **********/
       document.getElementById("exportProject").addEventListener("click", () => {
         const zip = new JSZip();
         zip.file("index.html", models.html.getValue());
-        zip.file("styles.css",  models.css.getValue());
-        zip.file("script.js",   models.js.getValue());
+        zip.file("styles.css", models.css.getValue());
+        zip.file("script.js", models.js.getValue());
         zip.generateAsync({ type: "blob" }).then((content) => {
           const link = document.createElement("a");
           link.href = URL.createObjectURL(content);
@@ -471,8 +554,17 @@
         });
       });
 
-      /********** CLEAR COOKIES BUTTON **********/
-      document.getElementById("clearCookies").addEventListener("click", () => {
+      /********** COOKIE MODAL **********/
+      document.getElementById("manageCookies").addEventListener("click", () => {
+        const cookieModal = document.getElementById("cookieModal");
+        const cookieText = document.getElementById("cookieText");
+        cookieText.value = document.cookie;
+        cookieModal.style.display = "block";
+      });
+      document.getElementById("closeCookieModal").addEventListener("click", () => {
+        document.getElementById("cookieModal").style.display = "none";
+      });
+      document.getElementById("clearAllCookies").addEventListener("click", () => {
         const cookies = document.cookie.split(";");
         for (let i = 0; i < cookies.length; i++) {
           const cookie = cookies[i];
@@ -480,15 +572,38 @@
           const name = eqPos > -1 ? cookie.substr(0, eqPos) : cookie;
           document.cookie = name + "=;expires=" + new Date(0).toUTCString() + ";path=/";
         }
-        alert("Cookies cleared for this domain.");
+        alert("All cookies cleared.");
+        document.getElementById("cookieText").value = "";
+      });
+      document.getElementById("saveCookies").addEventListener("click", () => {
+        alert("Cookie editing not implemented. You can clear cookies instead.");
       });
 
-      /********** TOGGLE CONSOLE **********/
+      /********** TOGGLE & RESIZE CONSOLE **********/
       const consolePanel = document.getElementById("consolePanel");
+      const consoleResizer = document.getElementById("consoleResizer");
       document.getElementById("toggleConsole").addEventListener("click", () => {
-        consolePanel.style.display = (consolePanel.style.display === "none" || !consolePanel.style.display) 
+        consolePanel.style.display = (consolePanel.style.display === "none" || !consolePanel.style.display)
           ? "block" : "none";
       });
+      let isConsoleResizing = false;
+      consoleResizer.addEventListener("mousedown", (e) => {
+        isConsoleResizing = true;
+        e.preventDefault();
+      });
+      document.addEventListener("mousemove", (e) => {
+        if (!isConsoleResizing) return;
+        // Adjust console panel height based on mouse Y position from bottom
+        const newHeight = window.innerHeight - e.clientY;
+        if (newHeight > 50 && newHeight < 500) {
+          consolePanel.style.height = newHeight + "px";
+        }
+      });
+      document.addEventListener("mouseup", () => {
+        isConsoleResizing = false;
+      });
+      
+      /********** OVERRIDE CONSOLE (Capture logs) **********/
       (function overrideConsole() {
         const origLog = console.log;
         console.log = function(...args) {
@@ -505,22 +620,17 @@
       /********** LINTING PLACEHOLDER **********/
       let lintTimeout;
       function runLinting() {
-        // HTML
         const htmlCode = models.html.getValue();
-        const htmlResults = (typeof HTMLHint !== "undefined" && HTMLHint.verify) 
+        const htmlResults = (typeof HTMLHint !== "undefined" && HTMLHint.verify)
           ? HTMLHint.verify(htmlCode) : [];
         if (htmlResults.length) {
           console.log("HTMLHint warnings:");
           htmlResults.forEach(issue => console.log(issue.message));
         }
-
-        // CSS
         const cssCode = models.css.getValue();
         if (cssCode.includes("!important")) {
           console.log("CSS Lint: Avoid using !important for better maintainability.");
         }
-
-        // JS
         console.log("Running minimal lint on JS (placeholder)...");
       }
 
@@ -539,7 +649,6 @@
         console.log("IndexedDB initialized.");
         loadFromDB();
       };
-
       function loadFromDB() {
         if (!db) return;
         const tx = db.transaction(["projects"], "readonly");
@@ -558,7 +667,6 @@
           }
         };
       }
-
       function saveToDB() {
         if (!db) return;
         const tx = db.transaction(["projects"], "readwrite");
@@ -566,8 +674,8 @@
         const project = {
           id: "default",
           html: models.html.getValue(),
-          css:  models.css.getValue(),
-          js:   models.js.getValue()
+          css: models.css.getValue(),
+          js: models.js.getValue()
         };
         store.put(project).onsuccess = () => console.log("Project saved to IndexedDB.");
       }
@@ -582,28 +690,25 @@
         }
       });
 
-      /********** RESIZER DRAG LOGIC **********/
+      /********** RESIZER DRAG LOGIC (Editor/Preview) **********/
       const resizer = document.getElementById("resizer");
       const editorContainer = document.getElementById("editorContainer");
       const mainContainer = document.getElementById("mainContainer");
       let isDragging = false;
-
       resizer.addEventListener("mousedown", e => {
         isDragging = true;
         document.body.style.userSelect = "none";
       });
-
       document.addEventListener("mousemove", e => {
         if (!isDragging) return;
         const offsetLeft = mainContainer.offsetLeft;
         const newWidth = e.clientX - offsetLeft;
-        const minWidth = 200; // min editor width
-        const maxWidth = mainContainer.clientWidth - 100; // leave space for preview
+        const minWidth = 200;
+        const maxWidth = mainContainer.clientWidth - 100;
         if (newWidth > minWidth && newWidth < maxWidth) {
           editorContainer.style.width = newWidth + "px";
         }
       });
-
       document.addEventListener("mouseup", e => {
         isDragging = false;
         document.body.style.userSelect = "";
