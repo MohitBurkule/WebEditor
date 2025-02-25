@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Monaco Editor + transformers.js + GitHub Sync</title>
+
+  <!-- Monaco Editor CSS -->
+  <link
+    rel="stylesheet"
+    href="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/editor/editor.main.min.css"
+  />
+
+  <!-- Iconify for icons -->
+  <script src="https://code.iconify.design/2/2.2.1/iconify.min.js"></script>
+
+  <style>
+    html, body {
+      margin: 0; padding: 0;
+      width: 100%; height: 100%;
+      font-family: sans-serif;
+      background: #f3f3f3;
+      transition: background 0.3s, color 0.3s;
+    }
+    body.dark-mode {
+      background: #1e1e1e;
+      color: #ccc;
+    }
+
+    /* Toolbar */
+    #toolbar {
+      display: flex; 
+      align-items: center; 
+      padding: 8px; 
+      background: #007acc; 
+      color: white;
+    }
+    #toolbar button {
+      background: transparent; 
+      border: none; 
+      color: inherit; 
+      font-size: 18px; 
+      margin-right: 10px; 
+      cursor: pointer;
+    }
+
+    /* Tabs */
+    #tabs {
+      display: flex;
+      background: #eee;
+      border-bottom: 1px solid #ccc;
+    }
+    #tabs button {
+      flex: 1; 
+      padding: 10px; 
+      border: none; 
+      background: none; 
+      cursor: pointer; 
+      font-size: 16px;
+      display: flex; 
+      align-items: center; 
+      justify-content: center;
+    }
+    #tabs button.active {
+      background: #ddd; 
+      font-weight: bold;
+    }
+
+    /* Main container with vertical split */
+    #mainContainer {
+      display: flex;
+      width: 100%;
+      height: calc(100% - 88px); /* 40px toolbar + 48px tabs */
+    }
+
+    /* Editor container on the left */
+    #editorContainer {
+      width: 50%;
+      min-width: 200px;
+      height: 100%;
+      position: relative;
+    }
+
+    /* The resizer between editor & preview */
+    #resizer {
+      width: 5px; 
+      background: #ccc; 
+      cursor: col-resize;
+    }
+
+    /* Preview container on the right */
+    #previewContainer {
+      flex: 1; 
+      background: #fff; 
+      position: relative; 
+      overflow: hidden;
+    }
+    #livePreview {
+      width: 100%; 
+      height: 100%; 
+      border: none;
+    }
+
+    /* Console panel hidden by default */
+    #consolePanel {
+      background: #333;
+      color: #fff;
+      padding: 10px;
+      font-family: monospace;
+      display: none; /* toggled by button */
+      max-height: 200px;
+      overflow-y: auto;
+    }
+  </style>
+</head>
+<body>
+  <!-- Toolbar -->
+  <div id="toolbar">
+    <!-- AI Buttons -->
+    <button id="aiAssist" title="AI Assist">
+      <span class="iconify" data-icon="mdi:lightbulb-on-outline"></span>
+    </button>
+    <button id="aiDebug" title="AI Debugger">
+      <span class="iconify" data-icon="mdi:bug"></span>
+    </button>
+
+    <!-- Theme, Run, Auto-run -->
+    <button id="toggleTheme" title="Toggle Dark/Light Mode">
+      <span class="iconify" data-icon="mdi:theme-light-dark"></span>
+    </button>
+    <button id="runCode" title="Run Code">
+      <span class="iconify" data-icon="mdi:play"></span>
+    </button>
+    <label style="margin-right: 10px;">
+      <input type="checkbox" id="autoRunCheckbox" checked />
+      Auto-run?
+    </label>
+
+    <!-- Undo/Redo -->
+    <button id="undo" title="Undo">
+      <span class="iconify" data-icon="mdi:undo"></span>
+    </button>
+    <button id="redo" title="Redo">
+      <span class="iconify" data-icon="mdi:redo"></span>
+    </button>
+
+    <!-- GitHub Sync -->
+    <button id="githubSync" title="GitHub Sync">
+      <span class="iconify" data-icon="mdi:github"></span>
+    </button>
+
+    <!-- Export, Clear Cookies, Toggle Console -->
+    <button id="exportProject" title="Export Project">
+      <span class="iconify" data-icon="mdi:download"></span>
+    </button>
+    <button id="clearCookies" title="Clear Cookies">
+      <span class="iconify" data-icon="mdi:cookie-remove"></span>
+    </button>
+    <button id="toggleConsole" title="Toggle Console">
+      <span class="iconify" data-icon="mdi:console-line"></span>
+    </button>
+  </div>
+
+  <!-- Tabs (HTML, CSS, JS) -->
+  <div id="tabs">
+    <button class="tab active" data-lang="html">
+      <span class="iconify" data-icon="mdi:file-code"></span>&nbsp;HTML
+    </button>
+    <button class="tab" data-lang="css">
+      <span class="iconify" data-icon="mdi:file-code"></span>&nbsp;CSS
+    </button>
+    <button class="tab" data-lang="js">
+      <span class="iconify" data-icon="mdi:file-code"></span>&nbsp;JavaScript
+    </button>
+  </div>
+
+  <!-- Main container with Editor, Resizer, and Preview -->
+  <div id="mainContainer">
+    <div id="editorContainer"></div>
+    <div id="resizer"></div>
+    <div id="previewContainer">
+      <iframe id="livePreview"></iframe>
+    </div>
+  </div>
+
+  <!-- Console Panel for logs -->
+  <div id="consolePanel">
+    <strong>Console Output:</strong>
+    <div id="consoleOutput"></div>
+  </div>
+
+  <!-- 1) Load transformers.js from Hugging Face (CDN: unpkg) -->
+  <!-- For up-to-date version, see https://github.com/xenova/transformers.js -->
+  <script src="https://unpkg.com/@xenova/transformers/dist/transformers.js"></script>
+
+  <!-- 2) Temporarily disable AMD for HTMLHint to avoid conflicts -->
+  <script>
+    var backupDefine = window.define;
+    var backupRequire = window.require;
+    window.define = undefined;
+    window.require = undefined;
+  </script>
+
+  <!-- 3) Minimal HTMLHint load -->
+  <script src="https://cdn.jsdelivr.net/npm/htmlhint@1.1.4/dist/htmlhint.min.js"></script>
+  <script>
+    if (typeof HTMLHint === "undefined") window.HTMLHint = {};
+    if (typeof HTMLHint.verify !== "function") {
+      HTMLHint.verify = function() { return []; };
+    }
+    window.define = backupDefine;
+    window.require = backupRequire;
+  </script>
+
+  <!-- 4) Monaco AMD Loader -->
+  <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js"></script>
+
+  <!-- 5) JSZip for exporting code as ZIP -->
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+
+  <script>
+    /************************************************************
+     * Main code starts below:
+     *  - Monaco Editor Setup
+     *  - Hugging Face transformers.js pipeline
+     *  - GitHub placeholders
+     *  - Editor logic (tabs, run code, console, etc.)
+     ************************************************************/
+
+    // Using the transformers.js library to load a text-generation pipeline.
+    // For real code completions, try a smaller code-specific model (like codegen) if available.
+    let textGenPipeline = null;
+
+    // Start loading the pipeline ASAP
+    (async function loadModel() {
+      console.log("Loading huggingface/transformers model (gpt2) ...");
+      // For more model options, see: https://github.com/xenova/transformers.js/tree/main/docs
+      textGenPipeline = await window.transformers.pipeline(
+        "text-generation",
+        "Xenova/gpt2"  // Or "Xenova/codegen-350M-mono" for code
+      );
+      console.log("Model loaded!");
+    })();
+
+    require.config({
+      paths: { vs: "https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs" }
+    });
+
+    require(["vs/editor/editor.main"], function () {
+      /********** DEFAULT CODE PER LANGUAGE **********/
+      const defaultContent = {
+        html: "<!DOCTYPE html>\n<html>\n<head>\n  <title>Live Preview</title>\n</head>\n<body>\n  <h1>Hello World</h1>\n</body>\n</html>",
+        css:  "body { font-family: sans-serif; padding: 20px; }",
+        js:   "console.log('Hello, JavaScript!');"
+      };
+
+      /********** CREATE MONACO MODELS **********/
+      const models = {
+        html: monaco.editor.createModel(defaultContent.html, "html"),
+        css:  monaco.editor.createModel(defaultContent.css,  "css"),
+        js:   monaco.editor.createModel(defaultContent.js,   "javascript")
+      };
+
+      let currentLang = "html";
+      let editor = null;
+
+      /********** CREATE/SHOW EDITOR **********/
+      function createEditorForLang(lang) {
+        editor = monaco.editor.create(document.getElementById("editorContainer"), {
+          model: models[lang],
+          theme: document.body.classList.contains("dark-mode") ? "vs-dark" : "vs-light",
+          automaticLayout: true
+        });
+        editor.onDidChangeModelContent(() => {
+          if (autoRunCheckbox.checked) {
+            clearTimeout(previewTimeout);
+            previewTimeout = setTimeout(updatePreview, 500);
+          }
+          clearTimeout(lintTimeout);
+          lintTimeout = setTimeout(runLinting, 1000);
+        });
+      }
+
+      // Start with HTML
+      createEditorForLang(currentLang);
+
+      /********** TAB SWITCHING **********/
+      document.querySelectorAll(".tab").forEach((tabBtn) => {
+        tabBtn.addEventListener("click", () => {
+          const lang = tabBtn.getAttribute("data-lang");
+          if (lang === currentLang) return;
+          if (editor) editor.dispose();
+          document.querySelectorAll(".tab").forEach((btn) => btn.classList.remove("active"));
+          tabBtn.classList.add("active");
+          currentLang = lang;
+          createEditorForLang(lang);
+        });
+      });
+
+      /********** RUN CODE BUTTON **********/
+      const runBtn = document.getElementById("runCode");
+      const autoRunCheckbox = document.getElementById("autoRunCheckbox");
+      runBtn.addEventListener("click", () => {
+        updatePreview();
+      });
+
+      /********** LIVE PREVIEW **********/
+      let previewTimeout;
+      function updatePreview() {
+        const htmlCode = models.html.getValue();
+        const cssCode  = models.css.getValue();
+        const jsCode   = models.js.getValue();
+
+        const previewFrame = document.getElementById("livePreview");
+        const previewDoc = previewFrame.contentDocument || previewFrame.contentWindow.document;
+        previewDoc.open();
+        previewDoc.write(
+          htmlCode + "<style>" + cssCode + "</style>" + "<script>" + jsCode + "<\/script>"
+        );
+        previewDoc.close();
+      }
+
+      /********** UNDO / REDO **********/
+      document.getElementById("undo").addEventListener("click", () => {
+        if (editor) editor.trigger("keyboard", "undo", null);
+      });
+      document.getElementById("redo").addEventListener("click", () => {
+        if (editor) editor.trigger("keyboard", "redo", null);
+      });
+
+      /********** THEME TOGGLE **********/
+      let isDarkMode = false;
+      document.getElementById("toggleTheme").addEventListener("click", () => {
+        isDarkMode = !isDarkMode;
+        monaco.editor.setTheme(isDarkMode ? "vs-dark" : "vs-light");
+        document.body.classList.toggle("dark-mode", isDarkMode);
+      });
+
+      /********** AI ASSIST & DEBUG **********/
+      document.getElementById("aiAssist").addEventListener("click", async () => {
+        if (!editor || !textGenPipeline) {
+          alert("Model not loaded yet. Please wait...");
+          return;
+        }
+        const userCode = editor.getValue();
+        console.log("Requesting AI assist from GPT-2 (transformers.js)...");
+        try {
+          // For better code suggestions, consider a code-specific model, or refine your prompt
+          const prompt = "Improve this code snippet:\n\n" + userCode + "\n\nImproved version:\n";
+          const result = await textGenPipeline(prompt, { max_new_tokens: 60 });
+          const suggestion = result[0]?.generated_text?.replace(prompt, "") || "";
+          // Insert the suggestion at the current cursor
+          editor.executeEdits(null, [
+            { range: editor.getSelection(), text: "\n/* AI Assist */\n" + suggestion }
+          ]);
+        } catch (err) {
+          console.error("AI assist error:", err);
+          alert("AI Assist error. Check console.");
+        }
+      });
+
+      document.getElementById("aiDebug").addEventListener("click", async () => {
+        if (!editor || !textGenPipeline) {
+          alert("Model not loaded yet. Please wait...");
+          return;
+        }
+        const code = editor.getValue();
+        console.log("Requesting AI debug from GPT-2 (transformers.js)...");
+        try {
+          const prompt = "Analyze bugs in this code snippet:\n\n" + code + "\n\nAnalysis:\n";
+          const result = await textGenPipeline(prompt, { max_new_tokens: 60 });
+          const analysis = result[0]?.generated_text?.replace(prompt, "") || "";
+          alert("AI Debug Analysis:\n" + analysis);
+        } catch (err) {
+          console.error("AI debug error:", err);
+          alert("AI Debug error. Check console.");
+        }
+      });
+
+      /********** GITHUB SYNC (PLACEHOLDER) **********/
+      document.getElementById("githubSync").addEventListener("click", async () => {
+        // Simple prompt to either load or save
+        const choice = prompt("Type 'load' to fetch from GitHub, 'save' to push to GitHub:");
+        if (!choice) return;
+        const token = prompt("Enter your GitHub Personal Access Token:");
+        if (!token) {
+          alert("No token provided.");
+          return;
+        }
+        const repo = prompt("Enter 'owner/repo' to sync with (e.g. 'username/test-repo'):");
+
+        if (choice.toLowerCase() === "load") {
+          // Example: reading a file from GitHub
+          const path = prompt("Enter the file path in the repo (e.g. 'index.html'):");
+          await loadFromGitHub(token, repo, path);
+        } else if (choice.toLowerCase() === "save") {
+          // Example: writing the current HTML file to GitHub
+          const path = prompt("Enter the file path in the repo to save to (e.g. 'index.html'):");
+          await saveToGitHub(token, repo, path, models.html.getValue());
+        } else {
+          alert("Invalid choice. Must be 'load' or 'save'.");
+        }
+      });
+
+      async function loadFromGitHub(token, repo, path) {
+        try {
+          const apiUrl = `https://api.github.com/repos/${repo}/contents/${path}`;
+          const resp = await fetch(apiUrl, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          if (!resp.ok) {
+            throw new Error(`GitHub fetch error: ${resp.status} ${resp.statusText}`);
+          }
+          const data = await resp.json();
+          // decode base64
+          const content = atob(data.content);
+          // For example, store it in the HTML model
+          models.html.setValue(content);
+          alert(`Loaded file from GitHub: ${repo}/${path}`);
+        } catch (err) {
+          console.error(err);
+          alert("Error loading from GitHub. Check console.");
+        }
+      }
+
+      async function saveToGitHub(token, repo, path, fileContent) {
+        try {
+          const apiUrl = `https://api.github.com/repos/${repo}/contents/${path}`;
+          // We must get the current SHA first (if file exists)
+          let sha = null;
+          const checkResp = await fetch(apiUrl, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          if (checkResp.ok) {
+            const checkData = await checkResp.json();
+            sha = checkData.sha || null;
+          }
+          // Then commit the new content
+          const newResp = await fetch(apiUrl, {
+            method: "PUT",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              message: "Update file via web editor",
+              content: btoa(fileContent),
+              sha: sha
+            })
+          });
+          if (!newResp.ok) {
+            throw new Error(`GitHub save error: ${newResp.status} ${newResp.statusText}`);
+          }
+          alert(`Saved file to GitHub: ${repo}/${path}`);
+        } catch (err) {
+          console.error(err);
+          alert("Error saving to GitHub. Check console.");
+        }
+      }
+
+      /********** EXPORT PROJECT (ZIP) **********/
+      document.getElementById("exportProject").addEventListener("click", () => {
+        const zip = new JSZip();
+        zip.file("index.html", models.html.getValue());
+        zip.file("styles.css",  models.css.getValue());
+        zip.file("script.js",   models.js.getValue());
+        zip.generateAsync({ type: "blob" }).then((content) => {
+          const link = document.createElement("a");
+          link.href = URL.createObjectURL(content);
+          link.download = "project.zip";
+          link.click();
+        });
+      });
+
+      /********** CLEAR COOKIES BUTTON **********/
+      document.getElementById("clearCookies").addEventListener("click", () => {
+        const cookies = document.cookie.split(";");
+        for (let i = 0; i < cookies.length; i++) {
+          const cookie = cookies[i];
+          const eqPos = cookie.indexOf("=");
+          const name = eqPos > -1 ? cookie.substr(0, eqPos) : cookie;
+          document.cookie = name + "=;expires=" + new Date(0).toUTCString() + ";path=/";
+        }
+        alert("Cookies cleared for this domain.");
+      });
+
+      /********** TOGGLE CONSOLE **********/
+      const consolePanel = document.getElementById("consolePanel");
+      document.getElementById("toggleConsole").addEventListener("click", () => {
+        consolePanel.style.display = (consolePanel.style.display === "none" || !consolePanel.style.display) 
+          ? "block" : "none";
+      });
+      (function overrideConsole() {
+        const origLog = console.log;
+        console.log = function(...args) {
+          origLog.apply(console, args);
+          const output = document.getElementById("consoleOutput");
+          args.forEach((arg) => {
+            const p = document.createElement("p");
+            p.textContent = (typeof arg === "object") ? JSON.stringify(arg) : arg;
+            output.appendChild(p);
+          });
+        };
+      })();
+
+      /********** LINTING PLACEHOLDER **********/
+      let lintTimeout;
+      function runLinting() {
+        // HTML
+        const htmlCode = models.html.getValue();
+        const htmlResults = (typeof HTMLHint !== "undefined" && HTMLHint.verify) 
+          ? HTMLHint.verify(htmlCode) : [];
+        if (htmlResults.length) {
+          console.log("HTMLHint warnings:");
+          htmlResults.forEach(issue => console.log(issue.message));
+        }
+
+        // CSS
+        const cssCode = models.css.getValue();
+        if (cssCode.includes("!important")) {
+          console.log("CSS Lint: Avoid using !important for better maintainability.");
+        }
+
+        // JS
+        console.log("Running minimal lint on JS (placeholder)...");
+      }
+
+      /********** INDEXEDDB (Auto Save) **********/
+      let db;
+      const openReq = window.indexedDB.open("CodeEditorDB", 5);
+      openReq.onerror = e => console.error("IndexedDB error:", e);
+      openReq.onupgradeneeded = e => {
+        db = e.target.result;
+        if (!db.objectStoreNames.contains("projects")) {
+          db.createObjectStore("projects", { keyPath: "id" });
+        }
+      };
+      openReq.onsuccess = e => {
+        db = e.target.result;
+        console.log("IndexedDB initialized.");
+        loadFromDB();
+      };
+
+      function loadFromDB() {
+        if (!db) return;
+        const tx = db.transaction(["projects"], "readonly");
+        const store = tx.objectStore("projects");
+        const req = store.get("default");
+        req.onsuccess = evt => {
+          const project = evt.target.result;
+          if (project) {
+            models.html.setValue(project.html);
+            models.css.setValue(project.css);
+            models.js.setValue(project.js);
+            if (autoRunCheckbox.checked) {
+              updatePreview();
+            }
+            console.log("Project loaded from IndexedDB.");
+          }
+        };
+      }
+
+      function saveToDB() {
+        if (!db) return;
+        const tx = db.transaction(["projects"], "readwrite");
+        const store = tx.objectStore("projects");
+        const project = {
+          id: "default",
+          html: models.html.getValue(),
+          css:  models.css.getValue(),
+          js:   models.js.getValue()
+        };
+        store.put(project).onsuccess = () => console.log("Project saved to IndexedDB.");
+      }
+      setInterval(saveToDB, 30000);
+
+      /********** KEYBOARD SHORTCUTS (CTRL/CMD + S) **********/
+      document.addEventListener("keydown", e => {
+        if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+          e.preventDefault();
+          saveToDB();
+          alert("Project saved locally.");
+        }
+      });
+
+      /********** RESIZER DRAG LOGIC **********/
+      const resizer = document.getElementById("resizer");
+      const editorContainer = document.getElementById("editorContainer");
+      const mainContainer = document.getElementById("mainContainer");
+      let isDragging = false;
+
+      resizer.addEventListener("mousedown", e => {
+        isDragging = true;
+        document.body.style.userSelect = "none";
+      });
+
+      document.addEventListener("mousemove", e => {
+        if (!isDragging) return;
+        const offsetLeft = mainContainer.offsetLeft;
+        const newWidth = e.clientX - offsetLeft;
+        const minWidth = 200; // min editor width
+        const maxWidth = mainContainer.clientWidth - 100; // leave space for preview
+        if (newWidth > minWidth && newWidth < maxWidth) {
+          editorContainer.style.width = newWidth + "px";
+        }
+      });
+
+      document.addEventListener("mouseup", e => {
+        isDragging = false;
+        document.body.style.userSelect = "";
+      });
+    });
+  </script>
+</body>
+</html>
