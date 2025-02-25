@@ -2,12 +2,14 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Advanced Monaco Editor + transformers.js + GitHub + Cookie Manager</title>
+  <title>Run WEB</title>
   
   <!-- Monaco Editor CSS -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/editor/editor.main.min.css" />
   <!-- Iconify for icons -->
   <script src="https://code.iconify.design/2/2.2.1/iconify.min.js"></script>
+  <!-- Split.js for layout resizing -->
+  <script src="https://cdn.jsdelivr.net/npm/split.js/dist/split.min.js"></script>
   
   <style>
     html, body {
@@ -32,7 +34,7 @@
       color: white;
       flex-wrap: wrap;
     }
-    #toolbar button, #toolbar label, #toolbar select {
+    #toolbar button, #toolbar label, #toolbar select, #toolbar input {
       background: transparent;
       border: none;
       color: inherit;
@@ -61,41 +63,32 @@
       background: #ddd;
       font-weight: bold;
     }
-    /* Main container (Editor + Preview) */
+    /* Main container splits horizontally: Editor and Right Panel */
     #mainContainer {
       display: flex;
       width: 100%;
-      height: calc(100% - 140px); /* toolbar + tabs height */
+      height: calc(100% - 140px); /* toolbar + tabs */
     }
     /* Editor container */
     #editorContainer {
-      width: 50%;
+      overflow: auto;
       min-width: 200px;
-      height: 100%;
-      position: relative;
     }
-    /* Resizer for editor/preview */
-    #resizer {
-      width: 5px;
-      background: #ccc;
-      cursor: col-resize;
-      z-index: 2;
+    /* Right container holds preview and console vertically */
+    #rightContainer {
+      display: flex;
+      flex-direction: column;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
     }
     /* Preview container */
     #previewContainer {
-      flex: 1;
+      flex: 70;
       background: #fff;
       position: relative;
       overflow: hidden;
       transition: width 0.3s;
-    }
-    /* Mobile view styles */
-    #previewContainer.mobile-view {
-      width: auto;
-      max-width: 100%;
-      margin: 0 auto;
-      border: 1px solid #aaa;
-      box-shadow: 0 0 10px rgba(0,0,0,0.3);
     }
     #livePreview {
       width: 100%;
@@ -104,23 +97,35 @@
     }
     /* Console Panel */
     #consolePanel {
+      flex: 30;
       background: #333;
       color: #fff;
       padding: 10px;
       font-family: monospace;
-      height: 200px;
       overflow-y: auto;
-      display: none;
-      resize: vertical;
     }
-    /* Console resizer */
-    #consoleResizer {
-      height: 5px;
-      background: #555;
-      cursor: ns-resize;
+    /* Mobile view styles (applied to right container) */
+    #rightContainer.mobile-view {
+      width: auto !important;
+      max-width: none;
+      margin: 0 auto;
+      border: 1px solid #aaa;
+      box-shadow: 0 0 10px rgba(0,0,0,0.3);
     }
-    /* Cookie Modal */
-    #cookieModal {
+    /* Gutters from Split.js */
+    .gutter {
+      background-color: #ccc;
+      background-repeat: no-repeat;
+      background-position: 50%;
+    }
+    .gutter.gutter-horizontal {
+      cursor: col-resize;
+    }
+    .gutter.gutter-vertical {
+      cursor: row-resize;
+    }
+    /* Modal styles (Cookie & AI Query & Model Options) */
+    #cookieModal, #aiModal, #aiModelOptionsModal {
       display: none;
       position: fixed;
       z-index: 1000;
@@ -130,7 +135,7 @@
       height: 100%;
       background-color: rgba(0,0,0,0.5);
     }
-    #cookieModal .modal-content {
+    .modal-content {
       background: #fff;
       margin: 10% auto;
       padding: 20px;
@@ -138,11 +143,11 @@
       max-width: 600px;
       border-radius: 4px;
     }
-    #cookieModal textarea {
+    .modal-content textarea, .modal-content input, .modal-content select {
       width: 100%;
-      height: 200px;
+      margin-top: 8px;
     }
-    #cookieModal button {
+    .modal-content button {
       margin-top: 10px;
     }
   </style>
@@ -150,43 +155,64 @@
 <body>
   <!-- Toolbar -->
   <div id="toolbar">
+    <!-- AI Buttons -->
     <button id="aiAssist" title="AI Assist" disabled>
       <span class="iconify" data-icon="mdi:lightbulb-on-outline"></span> AI Assist
     </button>
     <button id="aiDebug" title="AI Debug" disabled>
       <span class="iconify" data-icon="mdi:bug"></span> AI Debug
     </button>
+    <button id="aiCustomQuery" title="AI Custom Query">
+      <span class="iconify" data-icon="mdi:comment-question-outline"></span> AI Custom Query
+    </button>
+    <!-- AI Model selection -->
+    <label>AI Model:
+      <select id="aiModelSelect">
+        <option value="Xenova/codegen-350M-mono" selected>CodeGen 350M</option>
+        <option value="Xenova/gpt2">GPT-2</option>
+        <option value="custom">Custom</option>
+      </select>
+    </label>
+    <button id="loadModelBtn">Load Model</button>
+    <!-- Theme toggle -->
     <button id="toggleTheme" title="Toggle Dark/Light Mode">
       <span class="iconify" data-icon="mdi:theme-light-dark"></span> Toggle Theme
     </button>
+    <!-- Run / Auto-run -->
     <button id="runCode" title="Run Code">
       <span class="iconify" data-icon="mdi:play"></span> Run Code
     </button>
     <label>
       <input type="checkbox" id="autoRunCheckbox" checked /> Auto-run?
     </label>
+    <!-- Undo/Redo -->
     <button id="undo" title="Undo">
       <span class="iconify" data-icon="mdi:undo"></span> Undo
     </button>
     <button id="redo" title="Redo">
       <span class="iconify" data-icon="mdi:redo"></span> Redo
     </button>
+    <!-- GitHub Sync -->
     <button id="githubSync" title="GitHub Sync">
       <span class="iconify" data-icon="mdi:github"></span> GitHub Sync
     </button>
+    <!-- Export -->
     <button id="exportProject" title="Export Project">
       <span class="iconify" data-icon="mdi:download"></span> Export
     </button>
+    <!-- Cookie Manager -->
     <button id="manageCookies" title="Manage Cookies">
       <span class="iconify" data-icon="mdi:cookie"></span> Cookies
     </button>
+    <!-- Toggle Console -->
     <button id="toggleConsole" title="Toggle Console">
       <span class="iconify" data-icon="mdi:console-line"></span> Console
     </button>
+    <!-- Mobile Preview Toggle -->
     <button id="toggleMobile" title="Toggle Mobile View">
       <span class="iconify" data-icon="mdi:cellphone"></span> Mobile Preview
     </button>
-    <!-- Device Size Selector (for mobile preview) -->
+    <!-- Device Size Selector -->
     <label>
       Screen Size:
       <select id="deviceSize">
@@ -212,20 +238,18 @@
     </button>
   </div>
 
-  <!-- Main container: Editor + Resizer + Preview -->
+  <!-- Main container: Editor and Right Panel -->
   <div id="mainContainer">
     <div id="editorContainer"></div>
-    <div id="resizer"></div>
-    <div id="previewContainer">
-      <iframe id="livePreview"></iframe>
+    <div id="rightContainer">
+      <div id="previewContainer">
+        <iframe id="livePreview"></iframe>
+      </div>
+      <div id="consolePanel">
+        <strong>Console Output:</strong>
+        <div id="consoleOutput"></div>
+      </div>
     </div>
-  </div>
-
-  <!-- Console Panel with Resizer -->
-  <div id="consoleResizer"></div>
-  <div id="consolePanel">
-    <strong>Console Output:</strong>
-    <div id="consoleOutput"></div>
   </div>
 
   <!-- Cookie Modal -->
@@ -240,19 +264,41 @@
     </div>
   </div>
 
-  <!-- Load transformers.js via dynamic import in our main code -->
-  <script>
-    // Dynamically import transformers.js and assign it to window.transformers.
-    async function loadTransformersModule() {
-      try {
-        const transformers = await import('https://unpkg.com/@xenova/transformers/dist/transformers.js');
-        window.transformers = transformers;
-        console.log("Transformers module loaded.");
-      } catch (e) {
-        console.error("Error importing transformers.js:", e);
-      }
-    }
-    loadTransformersModule();
+  <!-- AI Custom Query Modal -->
+  <div id="aiModal">
+    <div class="modal-content">
+      <h3>AI Custom Query</h3>
+      <label>Line Range (e.g. "5-10", leave blank for full code):</label>
+      <input type="text" id="lineRange" placeholder="e.g. 5-10" />
+      <label>Custom Prompt (e.g. "Explain this code" or "Improve this snippet"):</label>
+      <textarea id="customPrompt" placeholder="Enter your prompt here..."></textarea>
+      <br />
+      <button id="sendAIQuery">Send Query</button>
+      <button id="closeAIModal">Close</button>
+    </div>
+  </div>
+
+  <!-- AI Model Options Modal (for custom selection) -->
+  <div id="aiModelOptionsModal">
+    <div class="modal-content">
+      <h3>Select a Model File</h3>
+      <p>Select one of the following candidate model file names:</p>
+      <form id="aiModelOptionsForm">
+        <!-- Update these options with your candidate model URLs -->
+        <label><input type="radio" name="modelOption" value="https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main/onnx/decoder_model_v1.onnx"> decoder_model_v1.onnx</label><br>
+        <label><input type="radio" name="modelOption" value="https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main/onnx/decoder_model_v2.onnx"> decoder_model_v2.onnx</label><br>
+        <label><input type="radio" name="modelOption" value="https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main/onnx/decoder_model_final.onnx"> decoder_model_final.onnx</label><br>
+      </form>
+      <button id="selectModelOption">Select Model</button>
+      <button id="closeModelOptionsModal">Cancel</button>
+    </div>
+  </div>
+
+  <!-- Load transformers.js as a module -->
+  <script type="module">
+    import * as transformers from "https://cdn.jsdelivr.net/npm/@xenova/transformers/dist/transformers.min.js";
+    window.transformers = transformers;
+    console.log("Transformers module loaded.");
   </script>
 
   <!-- Temporarily disable AMD for HTMLHint -->
@@ -273,47 +319,89 @@
     window.require = backupRequire;
   </script>
 
-  <!-- Monaco AMD Loader (only once) -->
+  <!-- Monaco AMD Loader -->
   <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js"></script>
-  <!-- JSZip for exporting project -->
+  <!-- JSZip for exporting -->
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 
   <script>
     /************************************************************
      * Main Code:
      *  - Setup Monaco Editor with persistent models.
-     *  - Dynamically load transformers.js and then load the model.
-     *  - Setup AI Assist/Debug, GitHub sync, run/auto-run, theme toggle,
-     *    cookie modal, console panel (with resizer), and mobile preview (with device sizes).
+     *  - Load the chosen transformers.js model.
+     *  - Provide AI Assist/Debug and AI Custom Query.
+     *  - Setup GitHub sync, run/auto-run, theme toggle,
+     *    cookie modal, and resizable layout using Split.js.
      ************************************************************/
     
     let textGenPipeline = null;
     let modelLoaded = false;
     
-    // Load the model asynchronously once transformers.js is available.
-    async function loadModel() {
-      // Wait until window.transformers is defined
-      while (!window.transformers) {
-        await new Promise(resolve => setTimeout(resolve, 100));
-      }
-      console.log("Loading transformers.js model...");
+    async function loadModelWithChoice(modelName) {
+      console.log("Loading transformers.js model: " + modelName);
       try {
-        // You can change the model name if you want a code-specific one.
-        textGenPipeline = await window.transformers.pipeline("text-generation", "Xenova/gpt2");
+        // Set decoding parameters to reduce repetition
+        textGenPipeline = await window.transformers.pipeline("text-generation", modelName);
         modelLoaded = true;
-        console.log("Model loaded successfully.");
+        console.log("Model loaded successfully: " + modelName);
         document.getElementById("aiAssist").disabled = false;
         document.getElementById("aiDebug").disabled = false;
       } catch (err) {
         console.error("Error loading model:", err);
+        // Instead of silently failing, show the model options modal
+        //document.getElementById("aiModelOptionsModal").style.display = "block";
       }
     }
-    loadModel();
-
+    
+    // Default load on startup using the dropdown selection (default is CodeGen)
+    loadModelWithChoice(document.getElementById("aiModelSelect").value);
+    
+    // When "Custom" is selected, show the model options modal.
+    document.getElementById("aiModelSelect").addEventListener("change", (e) => {
+      if (e.target.value === "custom") {
+        document.getElementById("aiModelOptionsModal").style.display = "block";
+      }
+    });
+    
+    // When user selects an option from the custom model modal:
+    document.getElementById("selectModelOption").addEventListener("click", () => {
+      const form = document.getElementById("aiModelOptionsForm");
+      const selectedOption = form.elements["modelOption"].value;
+      if (!selectedOption) {
+        alert("Please select a model file from the list.");
+        return;
+      }
+      document.getElementById("aiModelOptionsModal").style.display = "none";
+      modelLoaded = false;
+      document.getElementById("aiAssist").disabled = true;
+      document.getElementById("aiDebug").disabled = true;
+      loadModelWithChoice(selectedOption);
+    });
+    document.getElementById("closeModelOptionsModal").addEventListener("click", () => {
+      document.getElementById("aiModelOptionsModal").style.display = "none";
+    });
+    
+    // Allow user to choose and load a different model via the "Load Model" button.
+    document.getElementById("loadModelBtn").addEventListener("click", () => {
+      modelLoaded = false;
+      document.getElementById("aiAssist").disabled = true;
+      document.getElementById("aiDebug").disabled = true;
+      let selectedModel = document.getElementById("aiModelSelect").value;
+      if (selectedModel === "custom") {
+        // In case the user entered a custom URL manually
+        selectedModel = document.getElementById("customModelUrl").value.trim();
+        if (!selectedModel) {
+          alert("Please enter a valid custom model URL.");
+          return;
+        }
+      }
+      loadModelWithChoice(selectedModel);
+    });
+    
     require.config({
       paths: { vs: "https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs" }
     });
-
+    
     require(["vs/editor/editor.main"], function () {
       /********** DEFAULT CODE PER LANGUAGE **********/
       const defaultContent = {
@@ -321,17 +409,17 @@
         css:  "body { font-family: sans-serif; padding: 20px; }",
         js:   "console.log('Hello, JavaScript!');"
       };
-
+      
       /********** CREATE MONACO MODELS (Persistent) **********/
       const models = {
         html: monaco.editor.createModel(defaultContent.html, "html"),
         css:  monaco.editor.createModel(defaultContent.css,  "css"),
         js:   monaco.editor.createModel(defaultContent.js,   "javascript")
       };
-
+      
       let currentLang = "html";
       let editor = null;
-
+      
       /********** CREATE/SHOW EDITOR **********/
       function createEditorForLang(lang) {
         editor = monaco.editor.create(document.getElementById("editorContainer"), {
@@ -348,10 +436,10 @@
           lintTimeout = setTimeout(runLinting, 1000);
         });
       }
-
+      
       // Initialize editor with HTML
       createEditorForLang(currentLang);
-
+      
       /********** TAB SWITCHING **********/
       document.querySelectorAll(".tab").forEach((tabBtn) => {
         tabBtn.addEventListener("click", () => {
@@ -364,30 +452,27 @@
           createEditorForLang(lang);
         });
       });
-
+      
       /********** RUN CODE BUTTON **********/
       const runBtn = document.getElementById("runCode");
       const autoRunCheckbox = document.getElementById("autoRunCheckbox");
       runBtn.addEventListener("click", () => {
         updatePreview();
       });
-
+      
       /********** LIVE PREVIEW **********/
       let previewTimeout;
       function updatePreview() {
         const htmlCode = models.html.getValue();
         const cssCode  = models.css.getValue();
         const jsCode   = models.js.getValue();
-
         const previewFrame = document.getElementById("livePreview");
         const previewDoc = previewFrame.contentDocument || previewFrame.contentWindow.document;
         previewDoc.open();
-        previewDoc.write(
-          htmlCode + "<style>" + cssCode + "</style>" + "<script>" + jsCode + "<\/script>"
-        );
+        previewDoc.write(htmlCode + "<style>" + cssCode + "</style>" + "<script>" + jsCode + "<\/script>");
         previewDoc.close();
       }
-
+      
       /********** UNDO / REDO **********/
       document.getElementById("undo").addEventListener("click", () => {
         if (editor) editor.trigger("keyboard", "undo", null);
@@ -395,7 +480,7 @@
       document.getElementById("redo").addEventListener("click", () => {
         if (editor) editor.trigger("keyboard", "redo", null);
       });
-
+      
       /********** THEME TOGGLE **********/
       let isDarkMode = false;
       document.getElementById("toggleTheme").addEventListener("click", () => {
@@ -403,7 +488,7 @@
         monaco.editor.setTheme(isDarkMode ? "vs-dark" : "vs-light");
         document.body.classList.toggle("dark-mode", isDarkMode);
       });
-
+      
       /********** AI ASSIST & DEBUG **********/
       document.getElementById("aiAssist").addEventListener("click", async () => {
         if (!editor || !modelLoaded) {
@@ -414,7 +499,13 @@
         console.log("Requesting AI assist from transformers.js...");
         try {
           const prompt = "Improve this code snippet:\n\n" + userCode + "\n\nImproved version:\n";
-          const result = await textGenPipeline(prompt, { max_new_tokens: 60 });
+          const result = await textGenPipeline(prompt, {
+            max_new_tokens: 60,
+            temperature: 0.8,
+            top_k: 40,
+            top_p: 0.9,
+            repetition_penalty: 1.2
+          });
           const suggestion = result[0]?.generated_text?.replace(prompt, "") || "";
           editor.executeEdits(null, [{
             range: editor.getSelection(),
@@ -427,7 +518,7 @@
           alert("Error in AI Assist. Check console for details.");
         }
       });
-
+      
       document.getElementById("aiDebug").addEventListener("click", async () => {
         if (!editor || !modelLoaded) {
           alert("Model not loaded yet. Please wait...");
@@ -437,7 +528,13 @@
         console.log("Requesting AI debug from transformers.js...");
         try {
           const prompt = "Analyze the following code for potential bugs and improvements:\n\n" + code + "\n\nAnalysis:\n";
-          const result = await textGenPipeline(prompt, { max_new_tokens: 60 });
+          const result = await textGenPipeline(prompt, {
+            max_new_tokens: 60,
+            temperature: 0.8,
+            top_k: 40,
+            top_p: 0.9,
+            repetition_penalty: 1.2
+          });
           const analysis = result[0]?.generated_text?.replace(prompt, "") || "";
           alert("AI Debug Analysis:\n" + analysis);
         } catch (err) {
@@ -445,7 +542,52 @@
           alert("Error in AI Debug. Check console for details.");
         }
       });
-
+      
+      /********** AI CUSTOM QUERY MODAL **********/
+      document.getElementById("aiCustomQuery").addEventListener("click", () => {
+        document.getElementById("aiModal").style.display = "block";
+      });
+      document.getElementById("closeAIModal").addEventListener("click", () => {
+        document.getElementById("aiModal").style.display = "none";
+      });
+      document.getElementById("sendAIQuery").addEventListener("click", async () => {
+        if (!editor || !modelLoaded) {
+          alert("Model not loaded yet. Please wait...");
+          return;
+        }
+        let rangeStr = document.getElementById("lineRange").value.trim();
+        const customPrompt = document.getElementById("customPrompt").value.trim();
+        let codeToSend = "";
+        const fullCode = editor.getValue();
+        if (rangeStr.match(/^\d+\s*-\s*\d+$/)) {
+          const [start, end] = rangeStr.split("-").map(s => parseInt(s.trim(), 10));
+          const lines = fullCode.split("\n");
+          codeToSend = lines.slice(start - 1, end).join("\n");
+        } else {
+          codeToSend = fullCode;
+        }
+        const maxLines = 50;
+        let sanitizedCode = codeToSend.split("\n").slice(0, maxLines).join("\n");
+        sanitizedCode = sanitizedCode.replace(/[\u2028\u2029]/g, " ");
+        const prompt = customPrompt + "\n\n" + sanitizedCode;
+        console.log("Sending custom AI query...");
+        try {
+          const result = await textGenPipeline(prompt, {
+            max_new_tokens: 100,
+            temperature: 0.8,
+            top_k: 40,
+            top_p: 0.9,
+            repetition_penalty: 1.2
+          });
+          const response = result[0]?.generated_text?.replace(prompt, "") || "";
+          alert("AI Response:\n" + response);
+          document.getElementById("aiModal").style.display = "none";
+        } catch (err) {
+          console.error("AI Custom Query error:", err);
+          alert("Error in AI Custom Query. Check console for details.");
+        }
+      });
+      
       /********** GITHUB SYNC (PLACEHOLDER) **********/
       document.getElementById("githubSync").addEventListener("click", async () => {
         const choice = prompt("Type 'load' to fetch from GitHub, 'save' to push to GitHub:");
@@ -466,7 +608,7 @@
           alert("Invalid choice. Must be 'load' or 'save'.");
         }
       });
-
+      
       async function loadFromGitHub(token, repo, path) {
         try {
           const apiUrl = `https://api.github.com/repos/${repo}/contents/${path}`;
@@ -485,7 +627,7 @@
           alert("Error loading from GitHub. Check console.");
         }
       }
-
+      
       async function saveToGitHub(token, repo, path, fileContent) {
         try {
           const apiUrl = `https://api.github.com/repos/${repo}/contents/${path}`;
@@ -518,28 +660,52 @@
           alert("Error saving to GitHub. Check console.");
         }
       }
-
+      
       /********** MOBILE VIEW TOGGLE & DEVICE SIZE **********/
       const toggleMobileBtn = document.getElementById("toggleMobile");
       const deviceSizeSelect = document.getElementById("deviceSize");
+      let mobileViewActive = false;
       toggleMobileBtn.addEventListener("click", () => {
-        const previewContainer = document.getElementById("previewContainer");
-        previewContainer.classList.toggle("mobile-view");
-        if (previewContainer.classList.contains("mobile-view")) {
-          const selectedWidth = deviceSizeSelect.value;
-          previewContainer.style.width = selectedWidth + "px";
+        const rightContainer = document.getElementById("rightContainer");
+        mobileViewActive = !mobileViewActive;
+        if (mobileViewActive) {
+          rightContainer.classList.add("mobile-view");
+          rightContainer.style.width = deviceSizeSelect.value + "px";
         } else {
-          previewContainer.style.width = "";
+          rightContainer.classList.remove("mobile-view");
+          rightContainer.style.width = "";
         }
       });
-      // Also update width when device size selection changes (if in mobile view)
       deviceSizeSelect.addEventListener("change", () => {
-        const previewContainer = document.getElementById("previewContainer");
-        if (previewContainer.classList.contains("mobile-view")) {
-          previewContainer.style.width = deviceSizeSelect.value + "px";
+        if (mobileViewActive) {
+          document.getElementById("rightContainer").style.width = deviceSizeSelect.value + "px";
         }
       });
-
+      
+      /********** SETUP SPLIT.JS FOR RESIZING **********/
+      // Horizontal split: Editor vs. Right Container
+      Split(['#editorContainer', '#rightContainer'], {
+        gutterSize: 5,
+        cursor: 'col-resize'
+      });
+      // Vertical split: Preview vs. Console within Right Container
+      const verticalSplit = Split(['#previewContainer', '#consolePanel'], {
+        gutterSize: 5,
+        direction: 'vertical',
+        cursor: 'row-resize',
+        sizes: [70, 30]
+      });
+      
+      // Toggle console: if console area is visible, hide it; else restore.
+      document.getElementById("toggleConsole").addEventListener("click", () => {
+        const sizes = verticalSplit.getSizes();
+        if (sizes[1] > 5) {
+          verticalSplit.setSizes([100, 0]);
+        } else {
+          verticalSplit.setSizes([70, 30]);
+        }
+      });
+      
       /********** EXPORT PROJECT (ZIP) **********/
       document.getElementById("exportProject").addEventListener("click", () => {
         const zip = new JSZip();
@@ -553,7 +719,7 @@
           link.click();
         });
       });
-
+      
       /********** COOKIE MODAL **********/
       document.getElementById("manageCookies").addEventListener("click", () => {
         const cookieModal = document.getElementById("cookieModal");
@@ -561,7 +727,14 @@
         cookieText.value = document.cookie;
         cookieModal.style.display = "block";
       });
-      document.getElementById("closeCookieModal").addEventListener("click", () => {
+      let closeCookieBtn = document.getElementById("closeCookieModal");
+      if (!closeCookieBtn) {
+        closeCookieBtn = document.createElement("button");
+        closeCookieBtn.textContent = "Close";
+        closeCookieBtn.id = "closeCookieModal";
+        document.querySelector("#cookieModal .modal-content").appendChild(closeCookieBtn);
+      }
+      closeCookieBtn.addEventListener("click", () => {
         document.getElementById("cookieModal").style.display = "none";
       });
       document.getElementById("clearAllCookies").addEventListener("click", () => {
@@ -578,30 +751,6 @@
       document.getElementById("saveCookies").addEventListener("click", () => {
         alert("Cookie editing not implemented. You can clear cookies instead.");
       });
-
-      /********** TOGGLE & RESIZE CONSOLE **********/
-      const consolePanel = document.getElementById("consolePanel");
-      const consoleResizer = document.getElementById("consoleResizer");
-      document.getElementById("toggleConsole").addEventListener("click", () => {
-        consolePanel.style.display = (consolePanel.style.display === "none" || !consolePanel.style.display)
-          ? "block" : "none";
-      });
-      let isConsoleResizing = false;
-      consoleResizer.addEventListener("mousedown", (e) => {
-        isConsoleResizing = true;
-        e.preventDefault();
-      });
-      document.addEventListener("mousemove", (e) => {
-        if (!isConsoleResizing) return;
-        // Adjust console panel height based on mouse Y position from bottom
-        const newHeight = window.innerHeight - e.clientY;
-        if (newHeight > 50 && newHeight < 500) {
-          consolePanel.style.height = newHeight + "px";
-        }
-      });
-      document.addEventListener("mouseup", () => {
-        isConsoleResizing = false;
-      });
       
       /********** OVERRIDE CONSOLE (Capture logs) **********/
       (function overrideConsole() {
@@ -616,7 +765,7 @@
           });
         };
       })();
-
+      
       /********** LINTING PLACEHOLDER **********/
       let lintTimeout;
       function runLinting() {
@@ -633,7 +782,7 @@
         }
         console.log("Running minimal lint on JS (placeholder)...");
       }
-
+      
       /********** INDEXEDDB (Auto Save) **********/
       let db;
       const openReq = window.indexedDB.open("CodeEditorDB", 5);
@@ -680,7 +829,7 @@
         store.put(project).onsuccess = () => console.log("Project saved to IndexedDB.");
       }
       setInterval(saveToDB, 30000);
-
+      
       /********** KEYBOARD SHORTCUTS (CTRL/CMD + S) **********/
       document.addEventListener("keydown", e => {
         if ((e.ctrlKey || e.metaKey) && e.key === "s") {
@@ -689,30 +838,7 @@
           alert("Project saved locally.");
         }
       });
-
-      /********** RESIZER DRAG LOGIC (Editor/Preview) **********/
-      const resizer = document.getElementById("resizer");
-      const editorContainer = document.getElementById("editorContainer");
-      const mainContainer = document.getElementById("mainContainer");
-      let isDragging = false;
-      resizer.addEventListener("mousedown", e => {
-        isDragging = true;
-        document.body.style.userSelect = "none";
-      });
-      document.addEventListener("mousemove", e => {
-        if (!isDragging) return;
-        const offsetLeft = mainContainer.offsetLeft;
-        const newWidth = e.clientX - offsetLeft;
-        const minWidth = 200;
-        const maxWidth = mainContainer.clientWidth - 100;
-        if (newWidth > minWidth && newWidth < maxWidth) {
-          editorContainer.style.width = newWidth + "px";
-        }
-      });
-      document.addEventListener("mouseup", e => {
-        isDragging = false;
-        document.body.style.userSelect = "";
-      });
+      
     });
   </script>
 </body>
